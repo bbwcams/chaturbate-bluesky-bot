@@ -1,103 +1,16 @@
-import os
-import requests
-import time
-from atproto import Client, models
-from datetime import datetime
-
-# === CONFIG ===
-BLUESKY_HANDLE = os.getenv('BLUESKY_HANDLE')
-BLUESKY_PASS = os.getenv('BLUESKY_PASSWORD')
-API_URL = "https://chaturbate.com/affiliates/api/onlinerooms/?format=json&wm=T2CSW"
-MAX_POSTS_PER_RUN = 4
-
-def create_facets(text, watch_link, hashtags):
-    """Create official facets for clickable link + hashtags"""
-    facets = []
-    
-    # Link facet ("Watch free")
-    link_text = "Watch free"
-    link_start_char = text.find(link_text)
-    if link_start_char != -1:
-        link_start_byte = len(text[:link_start_char].encode('utf-8'))
-        link_end_byte = link_start_byte + len(link_text.encode('utf-8'))
-        index = models.AppBskyRichtextFacet.ByteSlice(byteStart=link_start_byte, byteEnd=link_end_byte)
-        feature = models.AppBskyRichtextFacet.Link(uri=watch_link)
-        facet = models.AppBskyRichtextFacet.Main(index=index, features=[feature])
-        facets.append(facet)
-    
-    # Hashtag facets
-    for tag in hashtags:
-        full_tag = f"#{tag}"
-        tag_start_char = text.find(full_tag)
-        if tag_start_char != -1:
-            tag_start_byte = len(text[:tag_start_char].encode('utf-8'))
-            tag_end_byte = tag_start_byte + len(full_tag.encode('utf-8'))
-            index = models.AppBskyRichtextFacet.ByteSlice(byteStart=tag_start_byte, byteEnd=tag_end_byte)
-            feature = models.AppBskyRichtextFacet.Tag(tag=tag)
-            facet = models.AppBskyRichtextFacet.Main(index=index, features=[feature])
-            facets.append(facet)
-    
-    return facets
-
-def main():
-    print(f"[{datetime.now()}] 🚀 Starting bot run...")
-
-    try:
-        client = Client()
-        client.login(BLUESKY_HANDLE, BLUESKY_PASS)
-        print("✅ Logged into Bluesky")
-    except Exception as e:
-        print(f"❌ Login failed: {e}")
-        return
-
-    try:
-        data = requests.get(API_URL, timeout=15).json()
-        print(f"✅ Fetched {len(data)} total online rooms")
-    except Exception as e:
-        print(f"❌ API fetch failed: {e}")
-        return
-
-    filtered = [
-        room for room in data
-        if room.get('gender') == 'f' and room.get('current_show') == 'public'
-    ]
-    print(f"✅ {len(filtered)} female public rooms available")
-
-    filtered.sort(key=lambda x: int(x.get('num_users', 0)), reverse=True)
-
-    posted = 0
-    for i, room in enumerate(filtered[:MAX_POSTS_PER_RUN]):
-        try:
-            img_resp = requests.get(room['image_url_360x270'], timeout=10)
-            img_bytes = img_resp.content
-
-            subject = (room.get('room_subject', '')[:80] + '...') if len(room.get('room_subject', '')) > 80 else room.get('room_subject', '')
-
-            watch_link = room['chat_room_url_revshare']
-            hashtags = ["Chaturbate", "CamGirls", "LiveCams", "Adult", "nsfw", "realnsfw", "bskynsfw", "nsfwsky"]
-
-            text = f"🔥 LIVE NOW ({room['num_users']} watching)\n\n" \
-                   f"{room['username']} • {room['age']} • {room['country'] or '??'}\n" \
-                   f"{subject}\n\n👉 Watch free\n\n" \
-                   f"{' '.join([f'#{tag}' for tag in hashtags])}"
-
-            facets = create_facets(text, watch_link, hashtags)
-
-            client.send_image(
-                text=text,
-                image=img_bytes,
-                image_alt=f"Live HD cam of {room['username']}",
-                facets=facets
-            )
-
-            print(f"✅ Posted #{i+1}: {room['username']} ({room['num_users']} viewers) — LINK + HASHTAGS CLICKABLE")
-            posted += 1
-            time.sleep(12)
-
-        except Exception as e:
-            print(f"⚠️  Failed to post {room.get('username')}: {e}")
-
-    print(f"[{datetime.now()}] ✅ Run complete — {posted} posts sent\n")
-
-if __name__ == "__main__":
-    main()
+import requests as r,json,os,time;from datetime import datetime as d
+h,p=os.environ['BSKY_HANDLE'],os.environ['BSKY_PASS']
+i=r.get('https://api.ipify.org').text
+u=f"https://chaturbate.com/api/public/affiliates/onlinerooms/?wm=T2CSW&client_ip={i}&format=json&limit=50&gender=f&hd=true"
+s=r.get(u).json()['results']
+posted=json.load(open('posted.json'))if os.path.exists('posted.json')else{}
+n=time.time()
+c=[x for x in s if x['username']not in posted or n-posted.get(x['username'],0)>86400]
+if not c:exit()
+c.sort(key=lambda x:-x.get('num_users',0));p=c[0]
+t=' '.join(f'#{tag}'for tag in p['tags']+['nsfw','nsfwsky'])
+txt=f"🔥LIVE RIGHT NOW!🔥 {p['username']} is teasing {p['room_subject']}! 👉{p['chat_room_url']} {t} 😈 Thousands watching — join the party!"
+posted[p['username']]=n
+json.dump(posted,open('posted.json','w'))
+j=r.post('https://bsky.social/xrpc/com.atproto.server.createSession',json={'identifier':h,'password':p}).json()['accessJwt']
+r.post('https://bsky.social/xrpc/com.atproto.repo.createRecord',headers={'Authorization':f'Bearer {j}'},json={'repo':h,'collection':'app.bsky.feed.post','record':{'$type':'app.bsky.feed.post','text':txt,'createdAt':d.utcnow().isoformat()+'Z'}})
