@@ -1,5 +1,5 @@
 import requests as r,json,os,time;from datetime import datetime as d
-h,p=os.environ['BSKY_HANDLE'],os.environ['BSKY_PASS']
+h,p=os.environ['BSKY_HANDLE'],os.environ['BLUESKY_PASSWORD']
 i=r.get('https://api.ipify.org').text
 u=f"https://chaturbate.com/api/public/affiliates/onlinerooms/?wm=T2CSW&client_ip={i}&format=json&limit=50&gender=f&hd=true"
 s=r.get(u).json()['results']
